@@ -1,10 +1,14 @@
 import json
+import re
 from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Booking, Guest
+
+
+PHONE_CLEAN_RE = re.compile(r"[^\d+]")
 
 
 def parse_dt(value: str | None) -> datetime | None:
@@ -14,6 +18,19 @@ def parse_dt(value: str | None) -> datetime | None:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
     except ValueError:
         return None
+
+
+def normalize_phone(phone: str | None) -> str | None:
+    if not phone:
+        return None
+    cleaned = PHONE_CLEAN_RE.sub("", phone.strip())
+    if cleaned.startswith("8") and len(cleaned) == 11:
+        return "+7" + cleaned[1:]
+    if cleaned.startswith("7") and len(cleaned) == 11:
+        return "+" + cleaned
+    if cleaned.startswith("+"):
+        return cleaned
+    return cleaned
 
 
 class BookingService:
@@ -28,10 +45,12 @@ class BookingService:
         if not external_booking_id:
             raise ValueError("No booking id in payload")
 
-        phone = payload.get("guest", {}).get("phone") or payload.get("phone")
+        guest_payload = payload.get("guest", {})
+        phone = normalize_phone(guest_payload.get("phone") or payload.get("phone"))
+        email = guest_payload.get("email") or payload.get("email")
         full_name = (
-            payload.get("guest", {}).get("full_name")
-            or payload.get("guest", {}).get("name")
+            guest_payload.get("full_name")
+            or guest_payload.get("name")
             or payload.get("customer_name")
         )
 
@@ -39,9 +58,14 @@ class BookingService:
         if phone:
             guest = db.scalar(select(Guest).where(Guest.phone == phone))
             if guest is None:
-                guest = Guest(phone=phone, full_name=full_name)
+                guest = Guest(phone=phone)
                 db.add(guest)
                 db.flush()
+
+            if full_name:
+                guest.full_name = full_name
+            if email:
+                guest.email = email
 
         booking = db.scalar(
             select(Booking).where(Booking.external_booking_id == external_booking_id)
@@ -82,11 +106,25 @@ class BookingService:
         )
         return db.scalars(stmt).first()
 
-    def link_chat_to_guest_by_phone(self, db: Session, chat_id: int | str, phone: str) -> bool:
-        guest = db.scalar(select(Guest).where(Guest.phone == phone))
-        if not guest:
-            return False
+    def find_latest_booking_by_phone(self, db: Session, phone: str) -> Booking | None:
+        normalized_phone = normalize_phone(phone)
+        if not normalized_phone:
+            return None
 
-        guest.telegram_chat_id = str(chat_id)
+        guest = db.scalar(select(Guest).where(Guest.phone == normalized_phone))
+        if not guest:
+            return None
+
+        stmt = (
+            select(Booking)
+            .where(Booking.guest_id == guest.id)
+            .order_by(Booking.created_at.desc())
+        )
+        return db.scalars(stmt).first()
+
+    def link_chat_to_booking_guest(self, db: Session, chat_id: int | str, booking: Booking) -> None:
+        if booking.guest is None:
+            return
+
+        booking.guest.telegram_chat_id = str(chat_id)
         db.commit()
-        return True

@@ -19,7 +19,6 @@ class TelegramService:
             "chat_id": chat_id,
             "text": text,
         }
-
         if reply_markup:
             payload["reply_markup"] = reply_markup
 
@@ -46,6 +45,15 @@ class TelegramService:
             "keyboard": [
                 [{"text": "Моя бронь"}, {"text": "Как заселиться"}],
                 [{"text": "Маршрут"}, {"text": "Поддержка"}],
+            ],
+            "resize_keyboard": True,
+            "one_time_keyboard": False,
+        }
+
+    def verification_menu(self) -> dict:
+        return {
+            "keyboard": [
+                [{"text": "Отправить код еще раз"}],
             ],
             "resize_keyboard": True,
             "one_time_keyboard": False,

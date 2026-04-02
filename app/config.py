@@ -14,6 +14,19 @@ class Settings(BaseSettings):
 
     travelline_webhook_secret: str | None = None
 
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str | None = None
+    smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False
+
+    email_otp_secret: str = "change-me-in-env"
+    email_otp_ttl_minutes: int = 10
+    email_otp_attempts: int = 5
+    email_otp_resend_cooldown_seconds: int = 60
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
