@@ -13,6 +13,17 @@ booking_service = BookingService()
 telegram_service = TelegramService()
 
 
+def format_booking_text(booking) -> str:
+    return (
+        f"Бронь: #{booking.external_booking_id}\n"
+        f"Статус: {booking.status or 'не указан'}\n"
+        f"Объект: {booking.property_name or 'не указан'}\n"
+        f"Номер: {booking.room_name or 'не указан'}\n"
+        f"Заезд: {booking.checkin_at or 'не указан'}\n"
+        f"Выезд: {booking.checkout_at or 'не указан'}"
+    )
+
+
 @router.post("/{secret}")
 async def telegram_webhook(
     secret: str,
@@ -31,22 +42,20 @@ async def telegram_webhook(
 
     if text.startswith("/start"):
         booking = booking_service.get_booking_by_chat_id(db, chat_id)
+
         if booking:
             await telegram_service.send_message(
                 chat_id,
-                (
-                    f"Ваша бронь найдена.\n"
-                    f"Бронь: #{booking.external_booking_id}\n"
-                    f"Статус: {booking.status or 'не указан'}\n"
-                    f"Объект: {booking.property_name or 'не указан'}\n"
-                    f"Номер: {booking.room_name or 'не указан'}"
-                ),
+                "Добро пожаловать. Ваше бронирование найдено.\n\n"
+                + format_booking_text(booking),
+                reply_markup=telegram_service.main_menu(),
             )
         else:
             await telegram_service.send_message(
                 chat_id,
                 "Привет. Пока бронь не привязана к вашему Telegram.\n"
                 "Отправьте номер телефона в формате +79991234567.",
+                reply_markup=telegram_service.main_menu(),
             )
         return {"ok": True}
 
@@ -57,26 +66,71 @@ async def telegram_webhook(
             if booking:
                 await telegram_service.send_message(
                     chat_id,
-                    (
-                        f"Готово, бронь привязана.\n"
-                        f"Бронь: #{booking.external_booking_id}\n"
-                        f"Статус: {booking.status or 'не указан'}"
-                    ),
+                    "Готово, бронь привязана.\n\n" + format_booking_text(booking),
+                    reply_markup=telegram_service.main_menu(),
                 )
             else:
                 await telegram_service.send_message(
                     chat_id,
-                    "Телефон найден, но активная бронь пока не обнаружена."
+                    "Телефон найден, но активная бронь пока не обнаружена.",
+                    reply_markup=telegram_service.main_menu(),
                 )
         else:
             await telegram_service.send_message(
                 chat_id,
-                "Бронь по этому телефону не найдена."
+                "Бронь по этому телефону не найдена.",
+                reply_markup=telegram_service.main_menu(),
             )
+        return {"ok": True}
+
+    if text == "Моя бронь":
+        booking = booking_service.get_booking_by_chat_id(db, chat_id)
+        if booking:
+            await telegram_service.send_message(
+                chat_id,
+                format_booking_text(booking),
+                reply_markup=telegram_service.main_menu(),
+            )
+        else:
+            await telegram_service.send_message(
+                chat_id,
+                "Бронь пока не привязана. Отправьте номер телефона в формате +79991234567.",
+                reply_markup=telegram_service.main_menu(),
+            )
+        return {"ok": True}
+
+    if text == "Как заселиться":
+        await telegram_service.send_message(
+            chat_id,
+            "Инструкция по заселению:\n"
+            "1. Подойдите к зданию по адресу из брони.\n"
+            "2. Используйте код доступа, когда он будет выдан.\n"
+            "3. Если возникнут сложности — нажмите «Поддержка».",
+            reply_markup=telegram_service.main_menu(),
+        )
+        return {"ok": True}
+
+    if text == "Маршрут":
+        await telegram_service.send_message(
+            chat_id,
+            "Маршрут пока в тестовом режиме.\n"
+            "Позже сюда добавим ссылку на карту и фото входа.",
+            reply_markup=telegram_service.main_menu(),
+        )
+        return {"ok": True}
+
+    if text == "Поддержка":
+        await telegram_service.send_message(
+            chat_id,
+            "Поддержка пока в тестовом режиме.\n"
+            "Позже сюда добавим контакт администратора и быстрые сценарии помощи.",
+            reply_markup=telegram_service.main_menu(),
+        )
         return {"ok": True}
 
     await telegram_service.send_message(
         chat_id,
-        "Напишите /start или отправьте номер телефона в формате +79991234567."
+        "Используйте меню ниже или команду /start.",
+        reply_markup=telegram_service.main_menu(),
     )
     return {"ok": True}
