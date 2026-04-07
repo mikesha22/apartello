@@ -28,7 +28,7 @@ CODE_RE = re.compile(r"^\d{6}$")
 async def prompt_phone(chat_id: int | str) -> None:
     await telegram_service.send_message(
         chat_id,
-        "Привет. Чтобы открыть бронь, отправьте номер телефона из бронирования в формате +79991234567.",
+        "Привет.\nЧтобы открыть бронь, отправьте номер телефона из бронирования в формате +79991234567.",
         reply_markup=telegram_service.main_menu(),
     )
 
@@ -65,10 +65,19 @@ async def send_support_section(chat_id: int | str, booking) -> None:
     )
 
 
-async def handle_callback(chat_id: int | str, message_id: int, callback_query_id: str, data: str, db: Session):
+async def handle_callback(
+    chat_id: int | str,
+    message_id: int,
+    callback_query_id: str,
+    data: str,
+    db: Session,
+):
     booking = booking_service.get_booking_by_chat_id(db, chat_id)
     if booking is None and data not in {"back_main"}:
-        await telegram_service.answer_callback_query(callback_query_id, "Сначала подтвердите доступ к брони")
+        await telegram_service.answer_callback_query(
+            callback_query_id,
+            "Сначала подтвердите доступ к брони",
+        )
         await prompt_phone(chat_id)
         return
 
@@ -85,36 +94,152 @@ async def handle_callback(chat_id: int | str, message_id: int, callback_query_id
         return
 
     callback_map: dict[str, tuple[str, dict]] = {
-        "back_main": ("Главное меню\n\nВыберите раздел в нижней клавиатуре.", {}),
-        "booking_refresh": (property_content.booking_summary(booking), telegram_service.booking_menu()) if booking else ("", {}),
-        "booking_details": (property_content.booking_details(booking), telegram_service.booking_menu()) if booking else ("", {}),
-        "booking_dates": (property_content.booking_dates(booking), telegram_service.booking_menu()) if booking else ("", {}),
-        "checkin_route": (property_content.checkin_route(booking), telegram_service.checkin_menu()) if booking else ("", {}),
-        "checkin_instruction": (property_content.checkin_instruction(booking), telegram_service.checkin_menu()) if booking else ("", {}),
-        "checkin_photo": (property_content.checkin_photo(booking), telegram_service.checkin_menu()) if booking else ("", {}),
-        "checkin_address": (property_content.checkin_address(booking), telegram_service.checkin_menu()) if booking else ("", {}),
-        "stay_wifi": (property_content.wifi_text(booking), telegram_service.stay_menu()) if booking else ("", {}),
-        "stay_rules": (property_content.house_rules_text(booking), telegram_service.stay_menu()) if booking else ("", {}),
-        "stay_problem": (property_content.problem_menu_text(booking), telegram_service.problem_menu()) if booking else ("", {}),
-        "stay_extend": (property_content.extend_text(booking), telegram_service.stay_menu()) if booking else ("", {}),
-        "support_call": (property_content.support_call_text(booking), telegram_service.support_menu()) if booking else ("", {}),
-        "support_telegram": (property_content.support_telegram_text(booking), telegram_service.support_menu()) if booking else ("", {}),
-        "support_whatsapp": (property_content.support_whatsapp_text(booking), telegram_service.support_menu()) if booking else ("", {}),
-        "support_urgent": (property_content.support_urgent_text(booking), telegram_service.support_menu()) if booking else ("", {}),
-        "problem_cant_enter": (property_content.problem_cant_enter_text(booking), telegram_service.problem_menu()) if booking else ("", {}),
-        "problem_code": (property_content.problem_code_text(booking), telegram_service.problem_menu()) if booking else ("", {}),
-        "problem_wifi": (property_content.problem_wifi_text(booking), telegram_service.problem_menu()) if booking else ("", {}),
-        "problem_room": (property_content.problem_room_text(booking), telegram_service.problem_menu()) if booking else ("", {}),
-        "problem_support": (property_content.support_text(booking), telegram_service.support_menu()) if booking else ("", {}),
-        "back_stay": (property_content.stay_overview(booking), telegram_service.stay_menu()) if booking else ("", {}),
+        "back_main": (
+            "Главное меню\n\nВыберите раздел в нижней клавиатуре.",
+            {},
+        ),
+        "booking_refresh": (
+            property_content.booking_summary(booking),
+            telegram_service.booking_menu(),
+        )
+        if booking
+        else ("", {}),
+        "booking_details": (
+            property_content.booking_details(booking),
+            telegram_service.booking_menu(),
+        )
+        if booking
+        else ("", {}),
+        "booking_dates": (
+            property_content.booking_dates(booking),
+            telegram_service.booking_menu(),
+        )
+        if booking
+        else ("", {}),
+        "checkin_route": (
+            property_content.checkin_route(booking),
+            telegram_service.checkin_menu(),
+        )
+        if booking
+        else ("", {}),
+        "checkin_instruction": (
+            property_content.checkin_instruction(booking),
+            telegram_service.checkin_menu(),
+        )
+        if booking
+        else ("", {}),
+        "checkin_photo": (
+            property_content.checkin_photo(booking),
+            telegram_service.checkin_menu(),
+        )
+        if booking
+        else ("", {}),
+        "checkin_address": (
+            property_content.checkin_address(booking),
+            telegram_service.checkin_menu(),
+        )
+        if booking
+        else ("", {}),
+        "stay_wifi": (
+            property_content.wifi_text(booking),
+            telegram_service.stay_menu(),
+        )
+        if booking
+        else ("", {}),
+        "stay_rules": (
+            property_content.house_rules_text(booking),
+            telegram_service.stay_menu(),
+        )
+        if booking
+        else ("", {}),
+        "stay_problem": (
+            property_content.problem_menu_text(booking),
+            telegram_service.problem_menu(),
+        )
+        if booking
+        else ("", {}),
+        "stay_extend": (
+            property_content.extend_text(booking),
+            telegram_service.stay_menu(),
+        )
+        if booking
+        else ("", {}),
+        "support_call": (
+            property_content.support_call_text(booking),
+            telegram_service.support_menu(),
+        )
+        if booking
+        else ("", {}),
+        "support_telegram": (
+            property_content.support_telegram_text(booking),
+            telegram_service.support_menu(),
+        )
+        if booking
+        else ("", {}),
+        "support_whatsapp": (
+            property_content.support_whatsapp_text(booking),
+            telegram_service.support_menu(),
+        )
+        if booking
+        else ("", {}),
+        "support_urgent": (
+            property_content.support_urgent_text(booking),
+            telegram_service.support_menu(),
+        )
+        if booking
+        else ("", {}),
+        "problem_cant_enter": (
+            property_content.problem_cant_enter_text(booking),
+            telegram_service.problem_menu(),
+        )
+        if booking
+        else ("", {}),
+        "problem_code": (
+            property_content.problem_code_text(booking),
+            telegram_service.problem_menu(),
+        )
+        if booking
+        else ("", {}),
+        "problem_wifi": (
+            property_content.problem_wifi_text(booking),
+            telegram_service.problem_menu(),
+        )
+        if booking
+        else ("", {}),
+        "problem_room": (
+            property_content.problem_room_text(booking),
+            telegram_service.problem_menu(),
+        )
+        if booking
+        else ("", {}),
+        "problem_support": (
+            property_content.support_text(booking),
+            telegram_service.support_menu(),
+        )
+        if booking
+        else ("", {}),
+        "back_stay": (
+            property_content.stay_overview(booking),
+            telegram_service.stay_menu(),
+        )
+        if booking
+        else ("", {}),
     }
 
     if data not in callback_map:
-        await telegram_service.answer_callback_query(callback_query_id, "Неизвестное действие")
+        await telegram_service.answer_callback_query(
+            callback_query_id,
+            "Неизвестное действие",
+        )
         return
 
     text, reply_markup = callback_map[data]
-    await telegram_service.edit_message_text(chat_id, message_id, text, reply_markup=reply_markup or None)
+    await telegram_service.edit_message_text(
+        chat_id,
+        message_id,
+        text,
+        reply_markup=reply_markup or None,
+    )
     await telegram_service.answer_callback_query(callback_query_id)
 
 
@@ -148,8 +273,7 @@ async def telegram_webhook(
         if booking:
             await telegram_service.send_message(
                 chat_id,
-                "Добро пожаловать в Apartello.\n\n"
-                "Ваша бронь найдена. Выберите нужный раздел в меню ниже.",
+                "Добро пожаловать в Apartello.\n\nВаша бронь найдена.\nВыберите нужный раздел в меню ниже.",
                 reply_markup=telegram_service.main_menu(),
             )
             await send_booking_section(chat_id, booking)
@@ -198,7 +322,7 @@ async def telegram_webhook(
         if not verification_service.can_resend(verification):
             await telegram_service.send_message(
                 chat_id,
-                "Код уже был отправлен недавно. Подождите около минуты и попробуйте снова.",
+                "Код уже был отправлен недавно.\nПодождите около минуты и попробуйте снова.",
                 reply_markup=telegram_service.verification_menu(),
             )
             return {"ok": True}
@@ -207,11 +331,15 @@ async def telegram_webhook(
         booking = verification.booking
         booking_label = f"#{booking.external_booking_id}" if booking else "без номера"
         try:
-            await email_service.send_verification_code(verification.email, code, booking_label)
+            await email_service.send_verification_code(
+                verification.email,
+                code,
+                booking_label,
+            )
         except Exception:
             await telegram_service.send_message(
                 chat_id,
-                "Не удалось отправить письмо. Проверьте SMTP-настройки в .env и попробуйте еще раз.",
+                "Не удалось отправить письмо.\nПроверьте SMTP-настройки в .env и попробуйте еще раз.",
             )
             return {"ok": True}
 
@@ -246,7 +374,10 @@ async def telegram_webhook(
     if normalized_phone and normalized_phone.startswith("+"):
         booking = booking_service.find_latest_booking_by_phone(db, normalized_phone)
         if booking is None or booking.guest is None:
-            await telegram_service.send_message(chat_id, "Бронь по этому телефону не найдена.")
+            await telegram_service.send_message(
+                chat_id,
+                "Бронь по этому телефону не найдена.",
+            )
             return {"ok": True}
 
         if not booking.guest.email:
@@ -263,13 +394,16 @@ async def telegram_webhook(
             email=booking.guest.email,
         )
         booking_label = f"#{booking.external_booking_id}"
-
         try:
-            await email_service.send_verification_code(booking.guest.email, code, booking_label)
+            await email_service.send_verification_code(
+                booking.guest.email,
+                code,
+                booking_label,
+            )
         except Exception:
             await telegram_service.send_message(
                 chat_id,
-                "Не удалось отправить письмо. Проверьте SMTP-настройки в .env и попробуйте снова.",
+                "Не удалось отправить письмо.\nПроверьте SMTP-настройки в .env и попробуйте снова.",
             )
             return {"ok": True}
 
