@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.deps import get_db
+from app.services.access_code_service import AccessCodeService
 from app.services.booking_service import BookingService, normalize_phone
 from app.services.email_service import EmailService
 from app.services.property_content_service import PropertyContentService
@@ -19,6 +20,7 @@ telegram_service = TelegramService()
 email_service = EmailService()
 verification_service = EmailVerificationService()
 property_content = PropertyContentService()
+access_code_service = AccessCodeService()
 
 CODE_RE = re.compile(r"^\d{6}$")
 
@@ -70,12 +72,23 @@ async def handle_callback(chat_id: int | str, message_id: int, callback_query_id
         await prompt_phone(chat_id)
         return
 
+    if data == "checkin_code" and booking is not None:
+        await access_code_service.try_prepare_code_for_booking(db, booking)
+        access_message = access_code_service.get_code_message(db, booking)
+        await telegram_service.edit_message_text(
+            chat_id,
+            message_id,
+            access_message.text,
+            reply_markup=telegram_service.checkin_menu(),
+        )
+        await telegram_service.answer_callback_query(callback_query_id)
+        return
+
     callback_map: dict[str, tuple[str, dict]] = {
         "back_main": ("Главное меню\n\nВыберите раздел в нижней клавиатуре.", {}),
         "booking_refresh": (property_content.booking_summary(booking), telegram_service.booking_menu()) if booking else ("", {}),
         "booking_details": (property_content.booking_details(booking), telegram_service.booking_menu()) if booking else ("", {}),
         "booking_dates": (property_content.booking_dates(booking), telegram_service.booking_menu()) if booking else ("", {}),
-        "checkin_code": (property_content.access_code_text(booking), telegram_service.checkin_menu()) if booking else ("", {}),
         "checkin_route": (property_content.checkin_route(booking), telegram_service.checkin_menu()) if booking else ("", {}),
         "checkin_instruction": (property_content.checkin_instruction(booking), telegram_service.checkin_menu()) if booking else ("", {}),
         "checkin_photo": (property_content.checkin_photo(booking), telegram_service.checkin_menu()) if booking else ("", {}),

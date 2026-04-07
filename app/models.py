@@ -46,6 +46,7 @@ class Booking(Base):
     )
 
     email_verifications: Mapped[list["EmailVerification"]] = relationship(back_populates="booking")
+    access_codes: Mapped[list["BookingAccessCode"]] = relationship(back_populates="booking")
 
 
 class EmailVerification(Base):
@@ -65,3 +66,52 @@ class EmailVerification(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     booking: Mapped[Booking] = relationship(back_populates="email_verifications")
+
+
+class LockBinding(Base):
+    __tablename__ = "lock_bindings"
+    __table_args__ = (
+        UniqueConstraint("property_name", "room_name", name="uq_lock_binding_property_room"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    property_name: Mapped[str] = mapped_column(String(255), index=True)
+    room_name: Mapped[str] = mapped_column(String(255), index=True)
+    lock_id: Mapped[int] = mapped_column(Integer, index=True)
+    keyboard_pwd_version: Mapped[int] = mapped_column(Integer)
+    lock_alias: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    access_codes: Mapped[list["BookingAccessCode"]] = relationship(back_populates="lock_binding")
+
+
+class BookingAccessCode(Base):
+    __tablename__ = "booking_access_codes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    booking_id: Mapped[int] = mapped_column(ForeignKey("bookings.id"), index=True)
+    lock_binding_id: Mapped[int] = mapped_column(ForeignKey("lock_bindings.id"), index=True)
+    source: Mapped[str] = mapped_column(String(50), default="ttlock")
+    status: Mapped[str] = mapped_column(String(50), default="generated", index=True)
+
+    keyboard_pwd: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    keyboard_pwd_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+
+    valid_from: Mapped[datetime] = mapped_column(DateTime)
+    valid_to: Mapped[datetime] = mapped_column(DateTime)
+    reveal_from: Mapped[datetime] = mapped_column(DateTime)
+
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    booking: Mapped[Booking] = relationship(back_populates="access_codes")
+    lock_binding: Mapped[LockBinding] = relationship(back_populates="access_codes")
