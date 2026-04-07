@@ -7,6 +7,7 @@ from app.database import Base, engine
 from app.routers.health import router as health_router
 from app.routers.telegram import router as telegram_router
 from app.routers.travelline import router as travelline_router
+from app.routers.ttlock import router as ttlock_router
 
 settings = get_settings()
 
@@ -25,3 +26,4 @@ app = FastAPI(
 app.include_router(health_router)
 app.include_router(travelline_router)
 app.include_router(telegram_router)
+app.include_router(ttlock_router)

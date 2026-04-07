@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     email_otp_attempts: int = 5
     email_otp_resend_cooldown_seconds: int = 60
 
+    ttlock_api_base_url: str = "https://api.sciener.com"
+    ttlock_client_id: str | None = None
+    ttlock_client_secret: str | None = None
+    ttlock_username: str | None = None
+    ttlock_password_md5: str | None = None
+    ttlock_timezone: str = "Europe/Amsterdam"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
