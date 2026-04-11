@@ -86,13 +86,13 @@ class TelegramService:
             "one_time_keyboard": False,
         }
 
-    def verification_menu(self) -> dict:
+    def contact_request_menu(self) -> dict:
         return {
             "keyboard": [
-                [{"text": "Отправить код еще раз"}],
+                [{"text": "Поделиться моим номером", "request_contact": True}],
             ],
             "resize_keyboard": True,
-            "one_time_keyboard": False,
+            "one_time_keyboard": True,
         }
 
     def booking_menu(self) -> dict:

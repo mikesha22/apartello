@@ -1,167 +1,69 @@
-# Apartello Backend
+# Apartello Backend MVP
 
-Backend для связки **TravelLine → FastAPI → PostgreSQL → Telegram-бот → TTLock**.
+Минимальный backend на Python для связки:
 
-Проект предназначен для хранения бронирований, привязки гостя к Telegram-чату, показа информации по заселению и подготовленной интеграции с кодами доступа для замков.
+**TravelLine → FastAPI → PostgreSQL → Telegram-бот**
 
-## Текущий статус
+Текущая версия проекта ориентирована на сценарий, где после бронирования гость переходит в Telegram-бота и **идентифицируется через кнопку Telegram "Поделиться моим номером"**. После этого бот ищет бронь по номеру телефона и открывает гостю информацию по проживанию.
 
-Сейчас в проекте уже реализовано:
+## Что умеет текущий MVP
 
-- приём webhook от TravelLine;
-- сохранение и обновление брони в PostgreSQL;
-- привязка гостя к Telegram по номеру телефона;
-- подтверждение доступа через email-код;
-- Telegram-меню для разделов **Моя бронь / Заселение / Проживание / Поддержка**;
-- отдельный TTLock API-слой для получения списка замков, просмотра passcode'ов и генерации временного кода доступа.
+- принимает webhook от TravelLine;
+- сохраняет бронь и гостя в PostgreSQL;
+- принимает webhook от Telegram;
+- привязывает Telegram-чат к гостю по **собственному номеру телефона**, отправленному через кнопку `request_contact`;
+- показывает карточку брони;
+- показывает разделы:
+  - **Моя бронь**
+  - **Заселение**
+  - **Проживание**
+  - **Поддержка**
+- поддерживает inline-кнопки внутри разделов;
+- позволяет вынести адрес, Wi‑Fi, инструкции, правила и контакты поддержки в отдельный конфиг по объектам.
 
-Что ещё не доведено до конца:
+## Что важно по логике авторизации
 
-- реальные mapping'и `property_name + room_name -> lock_id`;
-- хранение выданных кодов доступа в базе;
-- автоматическая выдача TTLock-кода внутри Telegram-бота вместо текстовой заглушки.
+Сейчас мы **не используем обязательную email-верификацию** для входа в бота.
 
-## Что умеет backend сейчас
+Текущий вход работает так:
 
-### 1. TravelLine webhook
+1. Пользователь нажимает `/start`.
+2. Если чат еще не привязан, бот показывает кнопку **«Поделиться моим номером»**.
+3. Telegram отправляет контакт пользователя.
+4. Backend проверяет, что это **именно контакт самого пользователя**, а не чужой номер.
+5. Backend ищет бронь по номеру телефона.
+6. Если бронь найдена — чат привязывается к гостю, и бот открывает доступ к информации.
 
-Backend принимает webhook от TravelLine, нормализует данные гостя и сохраняет бронь.
+## Стек
 
-Поддерживается:
-
-- поиск / создание гостя по номеру телефона;
-- сохранение `external_booking_id`;
-- хранение статуса, объекта, номера апартамента, дат заезда/выезда;
-- сохранение исходного payload в БД.
-
-Если у гостя уже привязан `telegram_chat_id`, backend отправляет уведомление в Telegram о том, что бронь обновилась.
-
-### 2. Telegram-бот
-
-Бот уже поддерживает основной сценарий гостя:
-
-1. пользователь пишет боту;
-2. отправляет телефон из бронирования;
-3. система находит актуальную бронь;
-4. на email из брони отправляется 6-значный код подтверждения;
-5. после ввода кода Telegram-чат привязывается к гостю;
-6. пользователю становятся доступны разделы по проживанию.
-
-### 3. Контент по объекту
-
-Через `PropertyContentService` уже отдаются:
-
-- адрес объекта;
-- инструкция по входу;
-- маршрут;
-- фото входа / подпись;
-- Wi‑Fi;
-- правила проживания;
-- контакты поддержки;
-- тексты для проблемных сценариев.
-
-### 4. TTLock
-
-В проекте уже есть техническая интеграция с TTLock:
-
-- получение access token;
-- список замков;
-- список существующих клавиатурных кодов;
-- генерация временного period code;
-- генерация period code по `external_booking_id` брони.
-
-Сейчас это отдельный backend-слой. В Telegram-кнопке «Показать код доступа» пока используется текстовая заглушка, а не реальный TTLock-код.
-
-## Архитектура
-
-```text
-TravelLine webhook
-        ↓
-    FastAPI backend
-        ↓
- PostgreSQL (guests, bookings, email_verifications)
-        ↓
- Telegram bot flow
-        ↓
-   TTLock service layer
-```
+- FastAPI
+- PostgreSQL
+- SQLAlchemy
+- httpx
+- Telegram Bot API
 
 ## Структура проекта
 
 ```text
-apartello/
+apartello_backend/
 ├── app/
 │   ├── main.py
 │   ├── config.py
 │   ├── database.py
-│   ├── deps.py
 │   ├── models.py
 │   ├── schemas.py
+│   ├── deps.py
 │   ├── routers/
 │   │   ├── health.py
 │   │   ├── telegram.py
-│   │   ├── travelline.py
-│   │   └── ttlock.py
+│   │   └── travelline.py
 │   └── services/
 │       ├── booking_service.py
-│       ├── email_service.py
 │       ├── property_content_service.py
-│       ├── security_service.py
-│       ├── telegram_service.py
-│       ├── ttlock_mapping_service.py
-│       └── ttlock_service.py
+│       └── telegram_service.py
 ├── .env.example
 ├── requirements.txt
 └── README.md
-```
-
-## Модели данных
-
-Сейчас в базе есть таблицы:
-
-- `guests`
-- `bookings`
-- `email_verifications`
-
-Пока **нет отдельных таблиц** для:
-
-- замков;
-- mapping'ов объект/номер → lock_id;
-- выданных кодов доступа;
-- истории выдачи / отзыва кодов.
-
-## Переменные окружения
-
-Минимально нужны:
-
-```env
-APP_NAME=Apartello MVP
-APP_ENV=dev
-DATABASE_URL=postgresql+psycopg://username:password@localhost:5432/apartello
-
-TELEGRAM_BOT_TOKEN=replace_me
-TELEGRAM_WEBHOOK_SECRET=replace_me
-TRAVELLINE_WEBHOOK_SECRET=
-
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=yourprojectmail@gmail.com
-SMTP_PASSWORD=replace_me
-SMTP_FROM_EMAIL=yourprojectmail@gmail.com
-SMTP_USE_TLS=true
-SMTP_USE_SSL=false
-
-EMAIL_OTP_SECRET=change_me_super_secret_123
-EMAIL_OTP_TTL_MINUTES=10
-EMAIL_OTP_ATTEMPTS=5
-EMAIL_OTP_RESEND_COOLDOWN_SECONDS=60
-
-TTLOCK_API_BASE_URL=https://api.sciener.com
-TTLOCK_CLIENT_ID=
-TTLOCK_CLIENT_SECRET=
-TTLOCK_USERNAME=
-TTLOCK_PASSWORD_MD5=
-TTLOCK_TIMEZONE=Europe/Amsterdam
 ```
 
 ## Локальный запуск
@@ -181,7 +83,7 @@ docker run --name apartello-postgres \
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate  # Windows: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 cp .env.example .env
 ```
@@ -189,7 +91,7 @@ cp .env.example .env
 ### 3. Запустить приложение
 
 ```bash
-uvicorn app.main:app --reload
+python -m uvicorn app.main:app --reload
 ```
 
 ## Проверка healthcheck
@@ -198,90 +100,82 @@ uvicorn app.main:app --reload
 curl http://127.0.0.1:8000/health
 ```
 
-## Проверка TravelLine webhook локально
-
-```bash
-curl -X POST "http://127.0.0.1:8000/webhooks/travelline" \
-  -H "Content-Type: application/json" \
-  -H "X-TravelLine-Secret: <YOUR_SECRET_IF_SET>" \
-  -d '{
-    "booking_id": "TL-100500",
-    "status": "confirmed",
-    "property_name": "Apartello Tolstogo",
-    "room_name": "Апартамент 12",
-    "arrival_date": "2026-04-05T14:00:00",
-    "departure_date": "2026-04-08T12:00:00",
-    "guest": {
-      "full_name": "Иван Иванов",
-      "phone": "+79991234567",
-      "email": "guest@example.com"
-    }
-  }'
-```
-
 ## Настройка Telegram webhook
 
-1. Создать бота через BotFather.
-2. Подставить `TELEGRAM_BOT_TOKEN` в `.env`.
-3. Поднять публичный HTTPS URL, например через ngrok.
-4. Установить webhook:
+1. Создай бота через BotFather.
+2. Подставь `TELEGRAM_BOT_TOKEN` в `.env`.
+3. Подними публичный HTTPS URL, например через ngrok.
+4. Установи webhook:
 
 ```bash
 curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
   -H "Content-Type: application/json" \
-  -d '{"url":"https://YOUR_PUBLIC_URL/webhooks/telegram/<YOUR_TELEGRAM_WEBHOOK_SECRET>"}'
+  -d '{"url":"https://YOUR_PUBLIC_URL/webhooks/telegram/super-secret-path"}'
 ```
 
-## TTLock endpoints
+## Как протестировать авторизацию через контакт
 
-### Получить список замков
+### 1. Отправь тестовую бронь в webhook TravelLine
 
-```bash
-GET /ttlock/locks
+Пример payload должен содержать номер телефона гостя:
+
+```json
+{
+  "booking_id": "TL-100500",
+  "status": "confirmed",
+  "property_name": "Apartello Tolstogo",
+  "room_name": "Апартамент 12",
+  "arrival_date": "2026-04-05T14:00:00",
+  "departure_date": "2026-04-08T12:00:00",
+  "guest": {
+    "full_name": "Иван Иванов",
+    "phone": "+79991234567",
+    "email": "guest@example.com"
+  }
+}
 ```
 
-### Получить passcode'ы конкретного замка
+### 2. Открой бота и отправь `/start`
 
-```bash
-GET /ttlock/locks/{lock_id}/passcodes
+Если чат еще не привязан, бот предложит нажать кнопку:
+
+**Поделиться моим номером**
+
+### 3. Отправь свой контакт через кнопку Telegram
+
+Бот:
+- проверит, что это именно твой контакт;
+- найдет бронь по номеру;
+- привяжет `telegram_chat_id`;
+- откроет доступ к разделам.
+
+## Где редактировать контент по объектам
+
+Файл:
+
+```text
+app/services/property_content_service.py
 ```
 
-### Сгенерировать временный код вручную
+Там можно менять:
+- адреса объектов;
+- инструкции по заселению;
+- Wi‑Fi;
+- правила проживания;
+- телефоны поддержки;
+- Telegram / WhatsApp;
+- ссылки на карты.
 
-```bash
-POST /ttlock/generate-period-code
-```
+## Ограничения текущей версии
 
-### Сгенерировать временный код по брони
+- код доступа пока отдается как заглушка;
+- нет полноценной интеграции с TTLock в основном пользовательском потоке;
+- нет отдельной админки;
+- email после webhook можно использовать как канал onboarding позже, но он **не обязателен** для текущей авторизации в боте.
 
-```bash
-POST /ttlock/generate-period-code-by-booking
-```
+## Ближайшие шаги
 
-Текущий сценарий генерации по брони работает только после заполнения `LOCK_MAPPINGS` в `app/services/ttlock_mapping_service.py`.
-
-## Важные ограничения текущей версии
-
-- Таблицы создаются автоматически через `Base.metadata.create_all(...)`, миграций пока нет.
-- README описывает текущее состояние кода, а не финальную продакшн-архитектуру.
-- TTLock уже подключён на уровне backend, но ещё не встроен до конца в пользовательский Telegram-flow.
-- Контент по объектам пока задаётся словарями в коде.
-
-## Что логично сделать дальше
-
-1. Вынести mapping замков из словаря в БД.
-2. Добавить таблицу выданных кодов доступа.
-3. Подключить реальный TTLock-код к кнопке «Показать код доступа» в Telegram.
-4. Добавить жизненный цикл кода: выдать / показать / продлить / деактивировать.
-5. Добавить Alembic и нормальные миграции.
-6. Добавить аудит действий по кодам и бронированиям.
-
-## Фокус текущего направления
-
-Сейчас отдельное направление разработки — **locks**:
-
-- замки;
-- коды доступа;
-- TTLock;
-- контракт выдачи кода по брони;
-- совместимость с текущим backend и сценариями Telegram-бота.
+- подключить TTLock для генерации гостевого кода;
+- отправлять email после webhook со ссылкой на Telegram-бота;
+- добавить более точную защиту для показа кода замка;
+- вынести контент по объектам в БД или админку.

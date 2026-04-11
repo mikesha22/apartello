@@ -24,6 +24,8 @@ def normalize_phone(phone: str | None) -> str | None:
     if not phone:
         return None
     cleaned = PHONE_CLEAN_RE.sub("", phone.strip())
+    if not cleaned:
+        return None
     if cleaned.startswith("8") and len(cleaned) == 11:
         return "+7" + cleaned[1:]
     if cleaned.startswith("7") and len(cleaned) == 11:
@@ -125,6 +127,5 @@ class BookingService:
     def link_chat_to_booking_guest(self, db: Session, chat_id: int | str, booking: Booking) -> None:
         if booking.guest is None:
             return
-
         booking.guest.telegram_chat_id = str(chat_id)
         db.commit()
