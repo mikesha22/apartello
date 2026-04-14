@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     ttlock_password_md5: str | None = None
     ttlock_timezone: str = "Europe/Amsterdam"
 
+    access_code_mode: str = "ttlock"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

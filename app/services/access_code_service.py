@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models import Booking, BookingAccessCode, LockBinding
 from app.services.ttlock_mapping_service import TTLockMappingService
 from app.services.ttlock_service import TTLockService
@@ -19,6 +20,8 @@ class AccessCodeMessage:
 
 class AccessCodeService:
     def __init__(self) -> None:
+        self.settings = get_settings()
+        self.access_code_mode = (self.settings.access_code_mode or "ttlock").strip().lower()
         self.ttlock_service = TTLockService()
         self.mapping_service = TTLockMappingService()
         self.reveal_offset = timedelta(minutes=15)
@@ -34,6 +37,16 @@ class AccessCodeService:
 
     def _active_statuses(self) -> tuple[str, ...]:
         return ("generated", "revealed")
+
+    def _test_code_from_phone(self, booking: Booking) -> str | None:
+        if booking.guest is None or not booking.guest.phone:
+            return None
+
+        digits = "".join(ch for ch in booking.guest.phone if ch.isdigit())
+        if len(digits) < 4:
+            return None
+
+        return digits[-4:]
 
     def get_binding_for_booking(self, db: Session, booking: Booking) -> LockBinding | None:
         return self.mapping_service.get_lock_binding(db, booking.property_name, booking.room_name)
@@ -86,7 +99,8 @@ class AccessCodeService:
         binding = self.get_binding_for_booking(db, booking)
         if binding is None:
             raise ValueError(
-                "No lock binding found for this booking. Add a record to lock_bindings first."
+                "No lock binding found for this booking. "
+                "Add a record to lock_bindings first."
             )
 
         current = self.get_current_code(db, booking)
@@ -100,7 +114,6 @@ class AccessCodeService:
 
         checkin_at, checkout_at = self._normalize_booking_times(booking)
         reveal_from = self._default_reveal_from(booking)
-
         result = await self.ttlock_service.generate_period_code(
             lock_id=binding.lock_id,
             keyboard_pwd_version=binding.keyboard_pwd_version,
@@ -116,7 +129,9 @@ class AccessCodeService:
             status="generated",
             keyboard_pwd=result.get("keyboard_pwd"),
             keyboard_pwd_id=(
-                str(result.get("keyboard_pwd_id")) if result.get("keyboard_pwd_id") is not None else None
+                str(result.get("keyboard_pwd_id"))
+                if result.get("keyboard_pwd_id") is not None
+                else None
             ),
             valid_from=checkin_at,
             valid_to=checkout_at,
@@ -131,6 +146,9 @@ class AccessCodeService:
     async def try_prepare_code_for_booking(self, db: Session, booking: Booking) -> BookingAccessCode | None:
         if booking.status and booking.status.lower() in {"cancelled", "canceled"}:
             self.cancel_codes_for_booking(db, booking, reason="Booking cancelled")
+            return None
+
+        if self.access_code_mode == "phone_last4":
             return None
 
         if booking.checkin_at is None or booking.checkout_at is None:
@@ -196,15 +214,56 @@ class AccessCodeService:
         if changed:
             db.commit()
 
+    def _get_phone_last4_message(
+        self,
+        booking: Booking,
+        now: datetime,
+    ) -> AccessCodeMessage:
+        if booking.status and booking.status.lower() in {"cancelled", "canceled"}:
+            return AccessCodeMessage(
+                "Бронирование отменено. Если это ошибка, обратитесь в поддержку."
+            )
+
+        code_value = self._test_code_from_phone(booking)
+        if code_value is None:
+            return AccessCodeMessage(
+                "Тестовый код доступа пока недоступен. "
+                "Не удалось определить номер телефона гостя."
+            )
+
+        if booking.checkin_at and now < (booking.checkin_at - self.reveal_offset):
+            return AccessCodeMessage(
+                "Код доступа пока недоступен. "
+                "Он появится ближе ко времени заселения."
+            )
+
+        valid_from = booking.checkin_at.strftime("%d.%m.%Y %H:%M") if booking.checkin_at else "не указано"
+        valid_to = booking.checkout_at.strftime("%d.%m.%Y %H:%M") if booking.checkout_at else "не указано"
+        lock_name = booking.room_name or "вашего апартамента"
+
+        return AccessCodeMessage(
+            (
+                f"Тестовый код доступа для {lock_name}:\n\n"
+                f"{code_value}\n\n"
+                f"Действует с {valid_from} до {valid_to}.\n"
+                "Сейчас это временный тестовый режим по последним 4 цифрам телефона гостя."
+            )
+        )
+
     def get_code_message(self, db: Session, booking: Booking, now: datetime | None = None) -> AccessCodeMessage:
         now = now or datetime.utcnow()
+
+        if self.access_code_mode == "phone_last4":
+            return self._get_phone_last4_message(booking, now)
+
         self.expire_outdated_codes(db, booking)
         code = self.get_current_code(db, booking)
         if code is None:
             failed = self.get_latest_code(db, booking.id)
             if failed is not None and failed.status == "failed":
                 return AccessCodeMessage(
-                    "Не удалось подготовить код доступа автоматически. Пожалуйста, обратитесь в поддержку.",
+                    "Не удалось подготовить код доступа автоматически.\n"
+                    "Пожалуйста, обратитесь в поддержку.",
                     failed,
                 )
             return AccessCodeMessage(
@@ -213,7 +272,8 @@ class AccessCodeService:
 
         if now < code.reveal_from:
             return AccessCodeMessage(
-                "Код доступа пока недоступен. Он появится ближе ко времени заселения."
+                "Код доступа пока недоступен.\n"
+                "Он появится ближе ко времени заселения."
             )
 
         if code.delivered_at is None:
@@ -233,3 +293,33 @@ class AccessCodeService:
             ),
             code,
         )
+
+    def describe_prepare_result(self, booking: Booking, code: BookingAccessCode | None) -> dict:
+        if booking.status and booking.status.lower() in {"cancelled", "canceled"}:
+            return {
+                "booking_id": booking.id,
+                "external_booking_id": booking.external_booking_id,
+                "mode": self.access_code_mode,
+                "prepared": False,
+                "reason": "booking_cancelled",
+            }
+
+        if self.access_code_mode == "phone_last4":
+            test_code = self._test_code_from_phone(booking)
+            return {
+                "booking_id": booking.id,
+                "external_booking_id": booking.external_booking_id,
+                "mode": self.access_code_mode,
+                "prepared": bool(test_code),
+                "reason": "phone_last4_ready" if test_code else "missing_guest_phone",
+                "test_code_preview": test_code,
+            }
+
+        return {
+            "booking_id": booking.id,
+            "external_booking_id": booking.external_booking_id,
+            "mode": self.access_code_mode,
+            "prepared": code is not None,
+            "reason": code.status if code is not None else "not_prepared",
+            "keyboard_pwd_id": code.keyboard_pwd_id if code is not None else None,
+        }
