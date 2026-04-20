@@ -13,6 +13,15 @@ class Settings(BaseSettings):
     telegram_webhook_secret: str
 
     travelline_webhook_secret: str | None = None
+    travelline_sync_secret: str | None = None
+    travelline_auth_url: str = "https://partner.tlintegration.com/auth/token"
+    travelline_api_base_url: str = "https://partner.tlintegration.com/api/read-reservation"
+    travelline_client_id: str | None = None
+    travelline_client_secret: str | None = None
+    travelline_property_ids: str | None = None
+    travelline_sync_page_size: int = 100
+    travelline_sync_max_pages: int = 10
+    travelline_sync_lookback_minutes: int = 15
 
     smtp_host: str | None = None
     smtp_port: int = 587
@@ -41,6 +50,17 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    def parsed_travelline_property_ids(self) -> list[str]:
+        if not self.travelline_property_ids:
+            return []
+
+        values: list[str] = []
+        for item in self.travelline_property_ids.split(","):
+            text = item.strip()
+            if text:
+                values.append(text)
+        return values
 
 
 @lru_cache

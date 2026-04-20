@@ -1,70 +1,138 @@
 # Apartello Backend MVP
 
-Минимальный backend на Python для связки:
+Backend для связки **TravelLine → FastAPI → PostgreSQL → Telegram-бот**.
 
-**TravelLine → FastAPI → PostgreSQL → Telegram-бот**
+Текущая ветка ориентирована на **hybrid-интеграцию с TravelLine**:
 
-Текущая версия проекта ориентирована на сценарий, где после бронирования гость переходит в Telegram-бота и **идентифицируется через кнопку Telegram "Поделиться моим номером"**. После этого бот ищет бронь по номеру телефона и открывает гостю информацию по проживанию.
+- **Read Reservation API** — основной канал синхронизации броней;
+- **webhook** — опциональный ускоритель синхронизации, если у объекта позже появится WebPMS;
+- Telegram-авторизация — по кнопке **«Поделиться моим номером»**;
+- тестовый код доступа — **последние 4 цифры телефона гостя**, если номер телефона уже есть в системе.
 
-## Что умеет текущий MVP
+---
 
-- принимает webhook от TravelLine;
-- сохраняет бронь и гостя в PostgreSQL;
-- принимает webhook от Telegram;
-- привязывает Telegram-чат к гостю по **собственному номеру телефона**, отправленному через кнопку `request_contact`;
-- показывает карточку брони;
-- показывает разделы:
+## Почему теперь API-first
+
+По официальной документации TravelLine:
+
+- `Read Reservation API` позволяет читать бронирования из **TL: Booking Engine, TL: Channel Manager и TL: WebPMS**;
+- webhook-события сейчас публикует **только WebPMS**;
+- в webhook `payload` не допускаются персональные данные;
+- детали брони в `Read Reservation API` содержат номер брони, статус, даты, room stays, тарифы и пр., но без WebPMS телефон/email гостя могут отсутствовать.
+
+Из-за этого текущий план такой:
+
+1. **без WebPMS** — работаем через API polling;
+2. **с WebPMS** — добавляем webhook как быстрый триггер sync;
+3. во всех случаях **источник истины по брони — API sync**, а не webhook-пакет.
+
+---
+
+## Что уже поддерживает эта версия
+
+### Telegram
+- вход через кнопку `request_contact`;
+- проверка, что отправлен **свой** контакт Telegram;
+- поиск брони по номеру телефона;
+- привязка `telegram_chat_id` к гостю;
+- разделы:
   - **Моя бронь**
   - **Заселение**
   - **Проживание**
   - **Поддержка**
-- поддерживает inline-кнопки внутри разделов;
-- позволяет вынести адрес, Wi‑Fi, инструкции, правила и контакты поддержки в отдельный конфиг по объектам.
 
-## Что важно по логике авторизации
+### TravelLine
+- legacy webhook с полной бронью всё ещё поддерживается;
+- официальный webhook с пакетами событий поддерживается как **триггер API-sync**;
+- ручной sync последних броней через backend endpoint;
+- ручной sync конкретной брони через backend endpoint;
+- мягкая обработка аномальных legacy payload;
+- понятные логи по webhook и sync.
 
-Сейчас мы **не используем обязательную email-верификацию** для входа в бота.
+### Доступ
+- тестовый код доступа: `ACCESS_CODE_MODE=phone_last4`;
+- если номера телефона у гостя нет, код в тестовом режиме недоступен.
 
-Текущий вход работает так:
-
-1. Пользователь нажимает `/start`.
-2. Если чат еще не привязан, бот показывает кнопку **«Поделиться моим номером»**.
-3. Telegram отправляет контакт пользователя.
-4. Backend проверяет, что это **именно контакт самого пользователя**, а не чужой номер.
-5. Backend ищет бронь по номеру телефона.
-6. Если бронь найдена — чат привязывается к гостю, и бот открывает доступ к информации.
-
-## Стек
-
-- FastAPI
-- PostgreSQL
-- SQLAlchemy
-- httpx
-- Telegram Bot API
+---
 
 ## Структура проекта
 
 ```text
-apartello_backend/
+apartello/
 ├── app/
 │   ├── main.py
 │   ├── config.py
 │   ├── database.py
-│   ├── models.py
-│   ├── schemas.py
 │   ├── deps.py
+│   ├── models.py
 │   ├── routers/
 │   │   ├── health.py
 │   │   ├── telegram.py
-│   │   └── travelline.py
+│   │   ├── travelline.py
+│   │   └── ttlock.py
 │   └── services/
+│       ├── access_code_service.py
 │       ├── booking_service.py
 │       ├── property_content_service.py
-│       └── telegram_service.py
+│       ├── telegram_service.py
+│       ├── travelline_api_service.py
+│       ├── travelline_models.py
+│       └── travelline_sync_service.py
 ├── .env.example
-├── requirements.txt
 └── README.md
 ```
+
+---
+
+## Что заменить / добавить
+
+### Заменить
+- `app/config.py`
+- `app/services/booking_service.py`
+- `app/routers/travelline.py`
+- `README.md`
+- `.env.example`
+
+### Добавить
+- `app/services/travelline_models.py`
+- `app/services/travelline_api_service.py`
+- `app/services/travelline_sync_service.py`
+
+---
+
+## Новые переменные окружения
+
+```env
+APP_NAME=Apartello MVP
+APP_ENV=dev
+
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/apartello
+
+TELEGRAM_BOT_TOKEN=123456:replace_me
+TELEGRAM_WEBHOOK_SECRET=super-secret-path
+
+TRAVELLINE_WEBHOOK_SECRET=
+TRAVELLINE_SYNC_SECRET=
+TRAVELLINE_AUTH_URL=https://partner.tlintegration.com/auth/token
+TRAVELLINE_API_BASE_URL=https://partner.tlintegration.com/api/read-reservation
+TRAVELLINE_CLIENT_ID=
+TRAVELLINE_CLIENT_SECRET=
+TRAVELLINE_PROPERTY_IDS=
+TRAVELLINE_SYNC_PAGE_SIZE=100
+TRAVELLINE_SYNC_MAX_PAGES=10
+TRAVELLINE_SYNC_LOOKBACK_MINUTES=15
+
+ACCESS_CODE_MODE=phone_last4
+```
+
+### Что означают новые поля
+- `TRAVELLINE_CLIENT_ID`, `TRAVELLINE_CLIENT_SECRET` — доступ к Read Reservation API;
+- `TRAVELLINE_PROPERTY_IDS` — список property id через запятую;
+- `TRAVELLINE_SYNC_SECRET` — опциональная защита ручных sync endpoint;
+- `TRAVELLINE_WEBHOOK_SECRET` — опциональная защита webhook endpoint;
+- `ACCESS_CODE_MODE=phone_last4` — тестовый код доступа как последние 4 цифры телефона.
+
+---
 
 ## Локальный запуск
 
@@ -83,99 +151,107 @@ docker run --name apartello-postgres \
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\Activate.ps1
+source .venv/bin/activate
+# Windows: .venv\Scripts\Activate.ps1
+
 pip install -r requirements.txt
 cp .env.example .env
 ```
 
-### 3. Запустить приложение
+### 3. Запустить backend
 
 ```bash
 python -m uvicorn app.main:app --reload
 ```
 
-## Проверка healthcheck
+### 4. Проверить health
 
 ```bash
 curl http://127.0.0.1:8000/health
 ```
 
+---
+
 ## Настройка Telegram webhook
 
-1. Создай бота через BotFather.
-2. Подставь `TELEGRAM_BOT_TOKEN` в `.env`.
-3. Подними публичный HTTPS URL, например через ngrok.
-4. Установи webhook:
-
 ```bash
-curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
+curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
   -H "Content-Type: application/json" \
   -d '{"url":"https://YOUR_PUBLIC_URL/webhooks/telegram/super-secret-path"}'
 ```
 
-## Как протестировать авторизацию через контакт
+---
 
-### 1. Отправь тестовую бронь в webhook TravelLine
+## Как тестировать TravelLine без WebPMS
 
-Пример payload должен содержать номер телефона гостя:
+### Вариант A — ручной sync последних броней
 
-```json
-{
-  "booking_id": "TL-100500",
-  "status": "confirmed",
-  "property_name": "Apartello Tolstogo",
-  "room_name": "Апартамент 12",
-  "arrival_date": "2026-04-05T14:00:00",
-  "departure_date": "2026-04-08T12:00:00",
-  "guest": {
-    "full_name": "Иван Иванов",
-    "phone": "+79991234567",
-    "email": "guest@example.com"
-  }
-}
+```bash
+curl -X POST "http://127.0.0.1:8000/webhooks/travelline/sync/recent"
 ```
 
-### 2. Открой бота и отправь `/start`
+Если задан `TRAVELLINE_SYNC_SECRET`:
 
-Если чат еще не привязан, бот предложит нажать кнопку:
+```bash
+curl -X POST "http://127.0.0.1:8000/webhooks/travelline/sync/recent" \
+  -H "x-travelline-sync-secret: YOUR_SECRET"
+```
 
-**Поделиться моим номером**
+### Вариант B — ручной sync одной брони
 
-### 3. Отправь свой контакт через кнопку Telegram
+```bash
+curl -X POST "http://127.0.0.1:8000/webhooks/travelline/sync/booking/<PROPERTY_ID>/<BOOKING_NUMBER>"
+```
 
-Бот:
-- проверит, что это именно твой контакт;
-- найдет бронь по номеру;
-- привяжет `telegram_chat_id`;
-- откроет доступ к разделам.
+---
 
-## Где редактировать контент по объектам
+## Как использовать webhook позже
 
-Файл:
+Если у объекта появится WebPMS, можно подключить webhook на:
 
 ```text
-app/services/property_content_service.py
+POST /webhooks/travelline
 ```
 
-Там можно менять:
-- адреса объектов;
-- инструкции по заселению;
-- Wi‑Fi;
-- правила проживания;
-- телефоны поддержки;
-- Telegram / WhatsApp;
-- ссылки на карты.
+В этой версии backend уже умеет:
+- принимать legacy payload с полной бронью;
+- принимать пакет событий webhook;
+- использовать webhook как триггер, а затем подтягивать детали брони через API.
 
-## Ограничения текущей версии
+---
 
-- код доступа пока отдается как заглушка;
-- нет полноценной интеграции с TTLock в основном пользовательском потоке;
-- нет отдельной админки;
-- email после webhook можно использовать как канал onboarding позже, но он **не обязателен** для текущей авторизации в боте.
+## Ограничения текущей hybrid-версии
 
-## Ближайшие шаги
+- без WebPMS телефон и email гостя могут не приходить из TravelLine;
+- без телефона Telegram-авторизация гостя по номеру работать не сможет;
+- тестовый код `phone_last4` тоже зависит от того, есть ли телефон;
+- polling пока запускается вручную endpoint-ами, а не фоновым scheduler.
 
-- подключить TTLock для генерации гостевого кода;
-- отправлять email после webhook со ссылкой на Telegram-бота;
-- добавить более точную защиту для показа кода замка;
-- вынести контент по объектам в БД или админку.
+---
+
+## Текущий план
+
+### Этап 1
+Стабилизировать **API-first sync**:
+- получить список броней через `Read Reservation API`;
+- сохранять/обновлять брони в БД;
+- использовать polling как основной канал.
+
+### Этап 2
+Поддержать реальные объекты без WebPMS:
+- проверять, какие поля реально приходят по конкретному отелю;
+- оценить, хватает ли их для Telegram-сценария;
+- при необходимости добавлять email onboarding или другой канал идентификации.
+
+### Этап 3
+Подключить webhook как ускоритель:
+- если у клиента появится WebPMS;
+- если TravelLine начнёт присылать события брони;
+- webhook остаётся быстрым триггером для sync, а не источником guest PII.
+
+### Этап 4
+После этого уже возвращаться к:
+- TTLock production flow;
+- email onboarding;
+- админке;
+- scheduler для регулярного polling.

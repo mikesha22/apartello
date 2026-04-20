@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Booking, Guest
+from app.services.travelline_models import NormalizedBookingInput
 
 PHONE_CLEAN_RE = re.compile(r"[^\d+]")
 
@@ -59,7 +60,9 @@ class BookingService:
         value = _first_present(
             payload.get("booking_id"),
             payload.get("reservation_id"),
+            payload.get("number"),
             payload.get("id"),
+            booking_payload.get("number"),
             booking_payload.get("id"),
         )
         if value is None:
@@ -111,6 +114,25 @@ class BookingService:
             payload.get("customer_name"),
         )
         return str(value) if value is not None else None
+
+    def normalize_legacy_travelline_payload(self, payload: dict) -> NormalizedBookingInput:
+        external_booking_id = self.extract_external_booking_id(payload)
+        if not external_booking_id:
+            raise ValueError("Missing booking id in payload")
+
+        return NormalizedBookingInput(
+            external_booking_id=external_booking_id,
+            source="travelline",
+            status=self.extract_status(payload),
+            property_name=self.extract_property_name(payload),
+            room_name=self.extract_room_name(payload),
+            checkin_at=parse_dt(payload.get("checkin_at") or payload.get("arrival_date")),
+            checkout_at=parse_dt(payload.get("checkout_at") or payload.get("departure_date")),
+            guest_name=self.extract_guest_name(payload),
+            guest_phone=self.extract_guest_phone(payload),
+            guest_email=self.extract_guest_email(payload),
+            raw_payload=payload,
+        )
 
     def get_anomaly_flags(self, payload: dict, booking: Booking | None = None) -> list[str]:
         flags: list[str] = []
@@ -170,44 +192,47 @@ class BookingService:
         }
 
     def upsert_from_travelline(self, db: Session, payload: dict) -> Booking:
-        external_booking_id = self.extract_external_booking_id(payload)
-        if not external_booking_id:
-            raise ValueError("Missing booking id in payload")
+        normalized = self.normalize_legacy_travelline_payload(payload)
+        return self.upsert_from_normalized(db, normalized)
 
-        phone = self.extract_guest_phone(payload)
-        email = self.extract_guest_email(payload)
-        full_name = self.extract_guest_name(payload)
-
+    def upsert_from_normalized(self, db: Session, data: NormalizedBookingInput) -> Booking:
         guest = None
-        if phone:
-            guest = db.scalar(select(Guest).where(Guest.phone == phone))
+        if data.guest_phone:
+            guest = db.scalar(select(Guest).where(Guest.phone == data.guest_phone))
             if guest is None:
-                guest = Guest(phone=phone)
+                guest = Guest(phone=data.guest_phone)
                 db.add(guest)
                 db.flush()
 
-            if full_name:
-                guest.full_name = full_name
-            if email:
-                guest.email = email
+            if data.guest_name:
+                guest.full_name = data.guest_name
+            if data.guest_email:
+                guest.email = data.guest_email
+        elif data.guest_email:
+            existing_guest = db.scalar(select(Guest).where(Guest.email == data.guest_email))
+            if existing_guest is not None:
+                guest = existing_guest
+                if data.guest_name:
+                    guest.full_name = data.guest_name
 
-        booking = db.scalar(select(Booking).where(Booking.external_booking_id == external_booking_id))
+        booking = db.scalar(select(Booking).where(Booking.external_booking_id == data.external_booking_id))
         if booking is None:
             booking = Booking(
-                external_booking_id=external_booking_id,
-                source="travelline",
+                external_booking_id=data.external_booking_id,
+                source=data.source or "travelline",
             )
             db.add(booking)
 
         if guest is not None:
             booking.guest = guest
 
-        booking.status = self.extract_status(payload)
-        booking.property_name = self.extract_property_name(payload)
-        booking.room_name = self.extract_room_name(payload)
-        booking.checkin_at = parse_dt(payload.get("checkin_at") or payload.get("arrival_date"))
-        booking.checkout_at = parse_dt(payload.get("checkout_at") or payload.get("departure_date"))
-        booking.raw_payload = json.dumps(payload, ensure_ascii=False)
+        booking.source = data.source or booking.source or "travelline"
+        booking.status = data.status
+        booking.property_name = data.property_name
+        booking.room_name = data.room_name
+        booking.checkin_at = data.checkin_at
+        booking.checkout_at = data.checkout_at
+        booking.raw_payload = json.dumps(data.raw_payload, ensure_ascii=False) if data.raw_payload is not None else None
 
         db.commit()
         db.refresh(booking)
